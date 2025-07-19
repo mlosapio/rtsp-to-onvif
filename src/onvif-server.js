@@ -25,8 +25,11 @@ module.exports = class OnvifServer {
         this.logger = logger;
 
         this.config.hostname = getIp4FromMac(logger, this.config.mac);
-        if (!this.config.hostname)
+        this.logger.debug(`SERVER: ${this.config.name} - Assigned hostname: ${this.config.hostname}`);
+        if (!this.config.hostname) {
+            this.logger.error(`SERVER: ${this.config.name} - No IP found for MAC ${this.config.mac}. Server may not start properly.`);
             return -1;
+        }
 
         this.videoSource = {
             attributes: {
@@ -124,32 +127,39 @@ module.exports = class OnvifServer {
             DeviceService: {
                 Device: {
                     GetSystemDateAndTime: (args) => {
-                        let now = new Date();
+                        try {
+                            let now = new Date();
 
-                        let offset = now.getTimezoneOffset();
-                        let abs_offset = Math.abs(offset);
-                        let hrs_offset = Math.floor(abs_offset / 60);
-                        let mins_offset = (abs_offset % 60);
-                        let tz = 'UTC' + (offset < 0 ? '-' : '+') + hrs_offset + (mins_offset === 0 ? '' : ':' + mins_offset);
+                            let offset = now.getTimezoneOffset();
+                            let abs_offset = Math.abs(offset);
+                            let hrs_offset = Math.floor(abs_offset / 60);
+                            let mins_offset = (abs_offset % 60);
+                            let tz = 'UTC' + (offset < 0 ? '-' : '+') + hrs_offset + (mins_offset === 0 ? '' : ':' + mins_offset);
 
-                        return {
-                            SystemDateAndTime: {
-                                DateTimeType: 'NTP',
-                                DaylightSavings: now.isDstObserved(),
-                                TimeZone: {
-                                    TZ: tz
-                                },
-                                UTCDateTime: {
-                                    Time: { Hour: now.getUTCHours(), Minute: now.getUTCMinutes(), Second: now.getUTCSeconds() },
-                                    Date: { Year: now.getUTCFullYear(), Month: now.getUTCMonth() + 1, Day: now.getUTCDate() }
-                                },
-                                LocalDateTime: {
-                                    Time: { Hour: now.getHours(), Minute: now.getMinutes(), Second: now.getSeconds() },
-                                    Date: { Year: now.getFullYear(), Month: now.getMonth() + 1, Day: now.getDate() }
-                                },
-                                Extension: {}
-                            }
-                        };
+                            return {
+                                SystemDateAndTime: {
+                                    DateTimeType: 'NTP',
+                                    DaylightSavings: now.isDstObserved(),
+                                    TimeZone: {
+                                        TZ: tz
+                                    },
+                                    UTCDateTime: {
+                                        Time: { Hour: now.getUTCHours(), Minute: now.getUTCMinutes(), Second: now.getUTCSeconds() },
+                                        Date: { Year: now.getUTCFullYear(), Month: now.getUTCMonth() + 1, Day: now.getUTCDate() }
+                                    },
+                                    LocalDateTime: {
+                                        Time: { Hour: now.getHours(), Minute: now.getMinutes(), Second: now.getSeconds() },
+                                        Date: { Year: now.getFullYear(), Month: now.getMonth() + 1, Day: now.getDate() }
+                                    },
+                                    Extension: {}
+                                }
+                            };
+                        } catch (e) {
+                            this.logger.error(`SERVER: ${this.config.name} - Error in GetSystemDateAndTime: ${e.stack}`);
+                            return {
+                                SystemDateAndTime: {}
+                            };
+                        }
                     },
 
                     GetCapabilities: (args) => {
@@ -262,13 +272,20 @@ module.exports = class OnvifServer {
                     },
 
                     GetDeviceInformation: (args) => {
-                        return {
-                            Manufacturer: 'rtsp-2-onvif',
-                            Model: `${this.config.name}`,
-                            FirmwareVersion: '1.0.0',
-                            SerialNumber: `${this.config.name.replace(' ', '_')}-0000`,
-                            HardwareId: `${this.config.name.replace(' ', '_')}-1001`
-                        };
+                        try {
+                            return {
+                                Manufacturer: 'rtsp-2-onvif',
+                                Model: `${this.config.name}`,
+                                FirmwareVersion: '1.0.0',
+                                SerialNumber: `${this.config.name.replace(' ', '_')}-0000`,
+                                HardwareId: `${this.config.name.replace(' ', '_')}-1001`
+                            };
+                        } catch (e) {
+                            this.logger.error(`SERVER: ${this.config.name} - Error in GetDeviceInformation: ${e.stack}`);
+                            return {
+                                Manufacturer: 'Unknown'
+                            };
+                        }
                     }
 
                 }
@@ -365,19 +382,17 @@ module.exports = class OnvifServer {
     enableDebugOutput() {
         this.deviceService.log = function(type, data, req){
             console.debug(`SERVER: ${data}`);
-            //there is no logger in this context
         };
         this.mediaService.log = function(type, data, req){
             console.debug(`SERVER: ${data}`);
-            //there is no logger in this context
         };
-        // this.deviceService.on('request', (request, methodName) => {
-        //     this.logger.debug(`SERVER: ${this.config.name} - DeviceService: ${methodName}`);
-        // });
+        this.deviceService.on('request', (request, methodName) => {
+            this.logger.debug(`SERVER: ${this.config.name} - DeviceService: ${methodName}`);
+        });
 
-        // this.mediaService.on('request', (request, methodName) => {
-        //     this.logger.debug(`SERVER: ${this.config.name} -  MediaService: ${methodName}`);
-        // });
+        this.mediaService.on('request', (request, methodName) => {
+            this.logger.debug(`SERVER: ${this.config.name} - MediaService: ${methodName}`);
+        });
     }
 
     startDiscovery() {
